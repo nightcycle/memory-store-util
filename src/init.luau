@@ -29,6 +29,13 @@ function getServerUsageScore(): number
 	end
 end
 
+function getIfIntervalUnlock(interval: number, deltaTime: number): boolean
+	local now = DateTime.now().UnixTimestampMillis/1000
+	local nextUpdate = interval + now - (now%interval)
+	
+	return (now - nextUpdate) >= deltaTime
+end
+
 -- Class
 local Util = {}
 
@@ -44,11 +51,11 @@ function Util.connectUniversalJob(
 		SERVER_REGISTRY_EXPIRATION
 	)
 
-	local lastUpdate = 0
+	-- local lastUpdate = 0
 	return RunService.Heartbeat:Connect(function(deltaTime: number)
-		if tick() - lastUpdate >= interval then
-			lastUpdate = tick()
 
+		if getIfIntervalUnlock(interval, deltaTime) then
+			-- lastUpdate = tick(
 			local isChosenOne = false
 			local success, msg = pcall(function()
 				local results = serverRegistryMap:GetRangeAsync(
@@ -56,7 +63,7 @@ function Util.connectUniversalJob(
 					1
 				)
 				if #results == 1 then
-					local key = results[1]
+					local key = results[1]["key"]
 					assert(typeof(key) == "string")
 					if key == game.JobId then
 						isChosenOne = true
