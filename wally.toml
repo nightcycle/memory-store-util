@@ -10,7 +10,7 @@ exclude = [ "Packages", ".vscode",]
 [dependencies]
 Maid = "nightcycle/maid@1.1.4"
 MockMemoryStoreService = "vorlias/mock-memory-store-service@0.2.0"
-CompressionUtil = "nightcycle/compression-util@1.0.0"
+CompressionUtil = "nightcycle/compression-util@2.0.1"
 Signal = "nightcycle/signal@1.0.2"
 TableUtil = "nightcycle/table-util@1.1.0"
 DictionaryPathUtil = "nightcycle/dictionary-path-util@1.0.0"
