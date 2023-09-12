@@ -12,6 +12,7 @@ local Util = require(_Package:WaitForChild("Util"))
 -- Types
 type Signal = Signal.Signal
 type Maid = Maid.Maid
+export type ServerMatchmaker = ServerMatchmaker.ServerMatchmaker
 
 -- Constants
 
