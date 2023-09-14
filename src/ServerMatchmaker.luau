@@ -2,7 +2,6 @@
 local _Package = script.Parent
 local _Packages = _Package.Parent
 -- Services
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local MemoryStoreService = require(_Packages:WaitForChild("MockMemoryStoreService"))
 local MessagingService = require(_Packages:WaitForChild("MockMessagingService"))
@@ -19,6 +18,10 @@ local Util = require(_Package:WaitForChild("Util"))
 -- Types
 type Signal = Signal.Signal
 type Maid = Maid.Maid
+type SubscriptionData = 	{
+	Data: any?,
+	Sent: number,
+}
 
 -- Constants
 local DEFAULT_INVISIBILITY_TIMEOUT = 30
@@ -39,32 +42,34 @@ function getQueueName(name: string)
 	return `MSU_SERVER_MATCHMAKE_QUEUE_{name}`
 end
 
-function processQueueAsync(
-	name: string,
-	goalSize: number,
-	registerMatch: (matchId: string, userIds: {[number]: number}) -> ()
-): ()
+function processQueueAsync(name: string, goalSize: number, registerMatch: (matchId: string, userIds: { [number]: number }) -> ()): ()
 	local queue = MemoryStoreService:GetQueue(getQueueName(name), DEFAULT_INVISIBILITY_TIMEOUT)
 
-	local registry: {[number]: string} = {}
+	local registry: { [number]: string } = {}
 
 	local isComplete = false
-	
+
 	repeat
-		Util.processQueueItemAsync(
-			queue,
-			function(data: string)
-				local jobId, encodedUserIdArray = string.unpack("LL", data)
+		Util.processQueueItemAsync(queue, function(data: string?)
+			-- print("processing data: ", data)
+			if data == nil then
+				isComplete = true
+			else
+				local jobId, encodedUserIdArray = string.unpack("ss", data)
 				local userIds = CompressionUtil.decodeIntegerArray(encodedUserIdArray)
 				for i, userId in ipairs(userIds) do
 					registry[userId] = jobId
 				end
-				if #userIds == 0 or #userIds >= goalSize then
+				-- print(`process result: {#userIds == 0}, {#userIds >= goalSize}`)
+				if #userIds >= goalSize then
 					isComplete = true
+					-- print("\n\n\n\nComplete!\n\n\n\n")
 				end
 			end
-		)
+		end)
 	until isComplete
+
+	-- print("out!")
 
 	local userIds = TableUtil.keys(registry)
 	local serverJobIds = TableUtil.deduplicate(TableUtil.values(registry))
@@ -72,7 +77,7 @@ function processQueueAsync(
 	if #userIds > 0 then
 		local matchId = CompressionUtil.encodeStringArray(serverJobIds)
 		registerMatch(matchId, userIds)
-	
+
 		for i, jobId in ipairs(serverJobIds) do
 			MessagingService:PublishAsync(getStartedTopicName(name, game.JobId), matchId)
 		end
@@ -89,12 +94,12 @@ export type ServerMatchmaker = {
 	_CurrentMatchId: string?,
 	_GoalMatchSize: number,
 	_QueueProcessingInterval: number,
-	_RegisterMatchProcess: (matchId: string, userIds: {[number]: number}) -> (),
+	_RegisterMatchProcess: (matchId: string, userIds: { [number]: number }) -> (),
 	_OnMatchStartInvoke: (matchId: string) -> (),
 	_OnMatchUpdateInvoke: (matchId: string) -> (),
 	_OnMatchCompleteInvoke: (matchId: string) -> (),
 	Destroy: (self: ServerMatchmaker) -> (),
-	RegisterUsers: (self: ServerMatchmaker, userIds: {[number]: number}) -> (),
+	RegisterUsers: (self: ServerMatchmaker, userIds: { [number]: number }) -> (),
 	GetIfStarted: (self: ServerMatchmaker) -> boolean,
 	FireUpdate: (self: ServerMatchmaker) -> (),
 	FireCompletion: (self: ServerMatchmaker) -> (),
@@ -102,12 +107,12 @@ export type ServerMatchmaker = {
 		name: string,
 		queueProcessingInterval: number,
 		goalMatchSize: number,
-		registerMatchProcess: (matchId: string, userIds: {[number]: number}) -> (),
+		registerMatchProcess: (matchId: string, userIds: { [number]: number }) -> (),
 		onMatchStartInvoke: (matchId: string) -> (),
 		onMatchUpdateInvoke: (matchId: string) -> (),
 		onMatchCompleteInvoke: (matchId: string) -> ()
 	) -> ServerMatchmaker,
-	init: (maid: Maid) -> nil
+	init: (maid: Maid) -> nil,
 }
 
 -- Class
@@ -115,7 +120,9 @@ local ServerMatchmaker = {} :: ServerMatchmaker
 ServerMatchmaker.__index = ServerMatchmaker
 
 function ServerMatchmaker:Destroy()
-	if not self._IsAlive then return end
+	if not self._IsAlive then
+		return
+	end
 	self._IsAlive = false
 	self._Maid:Destroy()
 	local t: any = self
@@ -125,14 +132,13 @@ function ServerMatchmaker:Destroy()
 	setmetatable(t, nil)
 end
 
-function ServerMatchmaker:RegisterUsers(userIds: {[number]: number})
+function ServerMatchmaker:RegisterUsers(userIds: { [number]: number })
 	local queue = MemoryStoreService:GetQueue(getQueueName(self._Name), DEFAULT_INVISIBILITY_TIMEOUT)
 
 	Util.escalatingRepeatAsync(function()
-		return queue:AddAsync(
-			string.pack("LL", game.JobId, CompressionUtil.encodeIntegerArray(userIds)), 
-			self._QueueProcessingInterval + 5
-		)
+		local value = string.pack("ss", game.JobId, CompressionUtil.encodeIntegerArray(userIds))
+		-- print("attempting to add: ", value)
+		return queue:AddAsync(value, self._QueueProcessingInterval + 60)
 	end)
 end
 
@@ -141,7 +147,9 @@ function ServerMatchmaker:GetIfStarted(): boolean
 end
 
 function ServerMatchmaker:FireUpdate(): ()
-	if not self:GetIfStarted() then return end
+	if not self:GetIfStarted() then
+		return
+	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
 	for i, jobId in ipairs(CompressionUtil.decodeStringArray(matchId)) do
@@ -150,7 +158,9 @@ function ServerMatchmaker:FireUpdate(): ()
 end
 
 function ServerMatchmaker:FireCompletion(): ()
-	if not self:GetIfStarted() then return end
+	if not self:GetIfStarted() then
+		return
+	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
 	for i, jobId in ipairs(CompressionUtil.decodeStringArray(matchId)) do
@@ -162,12 +172,11 @@ function ServerMatchmaker.new(
 	name: string,
 	queueProcessingInterval: number,
 	goalMatchSize: number,
-	registerMatchProcess: (matchId: string, userIds: {[number]: number}) -> (),
+	registerMatchProcess: (matchId: string, userIds: { [number]: number }) -> (),
 	onMatchStartInvoke: (matchId: string) -> (),
 	onMatchUpdateInvoke: (matchId: string) -> (),
 	onMatchCompleteInvoke: (matchId: string) -> ()
 ): ServerMatchmaker
-
 	local self: ServerMatchmaker = setmetatable({}, ServerMatchmaker) :: any
 	self._IsAlive = true
 	self._Maid = Maid.new()
@@ -180,16 +189,22 @@ function ServerMatchmaker.new(
 	self._OnMatchUpdateInvoke = onMatchUpdateInvoke
 	self._OnMatchCompleteInvoke = onMatchCompleteInvoke
 
-	self._Maid:GiveTask(MessagingService:SubscribeAsync(getStartedTopicName(name, game.JobId), function(matchId: string)
+	self._Maid:GiveTask(MessagingService:SubscribeAsync(getStartedTopicName(name, game.JobId), function(matchData: SubscriptionData)
+		local matchId = matchData.Data
+		assert(matchId)
 		assert(self._CurrentMatchId == nil)
 		self._CurrentMatchId = matchId
 		self._OnMatchStartInvoke(matchId)
 	end))
-	self._Maid:GiveTask(MessagingService:SubscribeAsync(getFinishTopicName(name, game.JobId), function(matchId: string)
+	self._Maid:GiveTask(MessagingService:SubscribeAsync(getFinishTopicName(name, game.JobId), function(matchData: SubscriptionData)
+		local matchId = matchData.Data
+		assert(matchId)
 		assert(matchId == self._CurrentMatchId)
 		self._OnMatchUpdateInvoke(matchId)
 	end))
-	self._Maid:GiveTask(MessagingService:SubscribeAsync(getUpdatedTopicName(name, game.JobId), function(matchId: string)
+	self._Maid:GiveTask(MessagingService:SubscribeAsync(getUpdatedTopicName(name, game.JobId), function(matchData: SubscriptionData)
+		local matchId = matchData.Data
+		assert(matchId)
 		assert(matchId == self._CurrentMatchId)
 		self._CurrentMatchId = nil
 		self._OnMatchCompleteInvoke(matchId)
@@ -202,12 +217,14 @@ function ServerMatchmaker.new(
 	local nextProcessTimestamp = getNextProcessTimestamp()
 
 	self._Maid:GiveTask(RunService.Heartbeat:Connect(function(deltaTime: number)
+		-- print(`heartbeat {nextProcessTimestamp} vs now {DateTime.now().UnixTimestamp}`)
 		if nextProcessTimestamp < DateTime.now().UnixTimestamp and self._CurrentMatchId == nil then
+			-- print("process")
 			nextProcessTimestamp = getNextProcessTimestamp()
 			processQueueAsync(self._Name, self._GoalMatchSize, self._RegisterMatchProcess)
 		end
 	end))
-		
+
 	return self
 end
 
