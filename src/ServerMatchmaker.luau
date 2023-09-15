@@ -56,7 +56,7 @@ function processQueueAsync(name: string, goalSize: number, registerMatch: (match
 				isComplete = true
 			else
 				local jobId, encodedUserIdArray = string.unpack("ss", data)
-				local userIds = CompressionUtil.decodeIntegerArray(encodedUserIdArray)
+				local userIds = CompressionUtil.Array.Number.decode(encodedUserIdArray, true)
 				for i, userId in ipairs(userIds) do
 					registry[userId] = jobId
 				end
@@ -73,9 +73,10 @@ function processQueueAsync(name: string, goalSize: number, registerMatch: (match
 
 	local userIds = TableUtil.keys(registry)
 	local serverJobIds = TableUtil.deduplicate(TableUtil.values(registry))
+	table.sort(serverJobIds)
 
 	if #userIds > 0 then
-		local matchId = CompressionUtil.encodeStringArray(serverJobIds)
+		local matchId = CompressionUtil.Array.String.encode(serverJobIds)
 		registerMatch(matchId, userIds)
 
 		for i, jobId in ipairs(serverJobIds) do
@@ -136,7 +137,7 @@ function ServerMatchmaker:RegisterUsers(userIds: { [number]: number })
 	local queue = MemoryStoreService:GetQueue(getQueueName(self._Name), DEFAULT_INVISIBILITY_TIMEOUT)
 
 	Util.escalatingRepeatAsync(function()
-		local value = string.pack("ss", game.JobId, CompressionUtil.encodeIntegerArray(userIds))
+		local value = string.pack("ss", game.JobId, CompressionUtil.Array.Number.encode(userIds, true))
 		-- print("attempting to add: ", value)
 		return queue:AddAsync(value, self._QueueProcessingInterval + 60)
 	end)
@@ -152,7 +153,7 @@ function ServerMatchmaker:FireUpdate(): ()
 	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
-	for i, jobId in ipairs(CompressionUtil.decodeStringArray(matchId)) do
+	for i, jobId in ipairs(CompressionUtil.Array.String.decode(matchId)) do
 		MessagingService:PublishAsync(getUpdatedTopicName(self._Name, jobId), matchId)
 	end
 end
@@ -163,7 +164,7 @@ function ServerMatchmaker:FireCompletion(): ()
 	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
-	for i, jobId in ipairs(CompressionUtil.decodeStringArray(matchId)) do
+	for i, jobId in ipairs(CompressionUtil.Array.String.decode(matchId)) do
 		MessagingService:PublishAsync(getFinishTopicName(self._Name, jobId), matchId)
 	end
 end
