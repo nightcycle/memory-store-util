@@ -46,6 +46,7 @@ function Util.processQueueItemAsync<T>(queue: MemoryStoreQueue, processor: (data
 	local items: { [number]: T } = {}
 	local readSuccess, readMessage = pcall(function()
 		items, readId = queue:ReadAsync(1, false, timeout or DEFAULT_TIMEOUT)
+		items = items or {}
 	end)
 	if not readSuccess then
 		warn(readMessage)
