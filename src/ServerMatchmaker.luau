@@ -55,7 +55,8 @@ function processQueueAsync(name: string, goalSize: number, registerMatch: (match
 			if data == nil then
 				isComplete = true
 			else
-				local jobId, encodedUserIdArray = string.unpack("ss", data)
+				local jobId, encodedUserIdArray = string.unpack("ss", CompressionUtil.Encoding.UTF8.fromUTF8(data))
+				
 				local userIds = CompressionUtil.Array.Number.decode(encodedUserIdArray, true)
 				for i, userId in ipairs(userIds) do
 					registry[userId] = jobId
@@ -76,7 +77,7 @@ function processQueueAsync(name: string, goalSize: number, registerMatch: (match
 	table.sort(serverJobIds)
 
 	if #userIds > 0 then
-		local matchId = CompressionUtil.Array.String.encode(serverJobIds)
+		local matchId = CompressionUtil.Encoding.UTF8.toUTF8(CompressionUtil.Array.String.encode(serverJobIds))
 		registerMatch(matchId, userIds)
 
 		for i, jobId in ipairs(serverJobIds) do
@@ -137,7 +138,7 @@ function ServerMatchmaker:RegisterUsers(userIds: { [number]: number })
 	local queue = MemoryStoreService:GetQueue(getQueueName(self._Name), DEFAULT_INVISIBILITY_TIMEOUT)
 
 	Util.escalatingRepeatAsync(function()
-		local value = string.pack("ss", game.JobId, CompressionUtil.Array.Number.encode(userIds, true))
+		local value = CompressionUtil.Encoding.UTF8.toUTF8(string.pack("ss", game.JobId, CompressionUtil.Array.Number.encode(userIds, true)))
 		-- print("attempting to add: ", value)
 		return queue:AddAsync(value, self._QueueProcessingInterval + 60)
 	end)
@@ -153,7 +154,7 @@ function ServerMatchmaker:FireUpdate(): ()
 	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
-	for i, jobId in ipairs(CompressionUtil.Array.String.decode(matchId)) do
+	for i, jobId in ipairs(CompressionUtil.Array.String.decode(CompressionUtil.Encoding.UTF8.fromUTF8(matchId))) do
 		MessagingService:PublishAsync(getUpdatedTopicName(self._Name, jobId), matchId)
 	end
 end
@@ -164,7 +165,7 @@ function ServerMatchmaker:FireCompletion(): ()
 	end
 	local matchId = self._CurrentMatchId
 	assert(matchId)
-	for i, jobId in ipairs(CompressionUtil.Array.String.decode(matchId)) do
+	for i, jobId in ipairs(CompressionUtil.Array.String.decode(CompressionUtil.Encoding.UTF8.fromUTF8(matchId))) do
 		MessagingService:PublishAsync(getFinishTopicName(self._Name, jobId), matchId)
 	end
 end
